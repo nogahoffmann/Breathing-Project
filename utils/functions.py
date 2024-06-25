@@ -261,50 +261,13 @@ def autocorrelation_fft(interval):
     result = result / max_val
     return result
 
-def frame_signal(signal, fs, frame_duration=0.05, overlap=0.5):
-    frame_size = int(frame_duration * fs)
-    frame_step = int(frame_size * (1 - overlap))
-    signal_length = len(signal)
-    num_frames = int(np.ceil(float(np.abs(signal_length - frame_size)) / frame_step)) + 1
 
-    pad_signal_length = num_frames * frame_step + frame_size
-    z = np.zeros((pad_signal_length - signal_length))
-    pad_signal = np.append(signal, z)
 
-    indices = np.tile(np.arange(0, frame_size), (num_frames, 1)) + np.tile(np.arange(0, num_frames * frame_step, frame_step), (frame_size, 1)).T
-    frames = pad_signal[indices.astype(np.int32, copy=False)]
-    return frames
-
-def calculate_frame_energy(frames):
-    return np.sum(frames**2, axis=1)
-
-def smooth_energy(energy, window_len=21):
+def smooth_signal(signal, window_len=1103):
+    # Apply a Hanning window smoothing filter
     window = np.hanning(window_len)
-    smooth_energy = np.convolve(energy, window/window.sum(), mode='same')
-    return smooth_energy
-
-def calculate_smoothed_energy(signal, fs, frame_duration=0.05, overlap=0.5, window_len=21):
-    frames = frame_signal(signal, fs, frame_duration, overlap)
-    energy = calculate_frame_energy(frames)
-    smoothed_energy = smooth_energy(energy, window_len)
-    
-    return smoothed_energy
-
-def plot_signal_and_smoothed_energy(signal, smoothed_energy, fs, frame_duration=0.05, overlap=0.5):
-    time_signal = np.arange(len(signal)) / fs
-    frame_size = int(frame_duration * fs)
-    frame_step = int(frame_size * (1 - overlap))
-    time_energy = np.arange(len(smoothed_energy)) * frame_step / fs
-
-    plt.figure(figsize=(12, 6))
-    plt.plot(time_signal, signal, label='Original Signal')
-    plt.plot(time_energy, smoothed_energy, label='Smoothed Energy', linestyle='--')
-    plt.title('Original Signal and Smoothed Energy')
-    plt.xlabel('Time (s)')
-    plt.ylabel('Amplitude')
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    smooth_signal = np.convolve(signal, window/window.sum(), mode='same')
+    return smooth_signal
 
 def plot_signal_and_envelope(audio, envelope, fs_rate):
     time = np.arange(len(audio)) / fs_rate
@@ -343,52 +306,17 @@ def plot_intervals_and_autocorrelation(intervals, fs_rate):
         plt.show()
 
 
-def calculate_spectral_centroid(audio, fs):
-    # Compute the magnitude spectrum of the audio signal
-    magnitude_spectrum = np.abs(fft(audio))
-    length = len(audio)
-    # Compute the corresponding frequencies
-    freqs = np.fft.fftfreq(length, 1/fs)
-    
-    # Only consider the positive half of the spectrum
-    positive_freqs = freqs[:length // 2]
-    positive_magnitude_spectrum = magnitude_spectrum[:length // 2]
-    
-    # Calculate the spectral centroid
-    spectral_centroid = np.sum(positive_freqs * positive_magnitude_spectrum) / np.sum(positive_magnitude_spectrum)
-    
-    return spectral_centroid
-
-def calculate_energy_ratio(audio, fs_rate):
-    # Divide the signal into inhalation and exhalation segments
-    midpoint = len(audio) // 2
-    inhale_segment = audio[:midpoint]
-    exhale_segment = audio[midpoint:]
-    inhale_energy = np.sum(inhale_segment**2)
-    exhale_energy = np.sum(exhale_segment**2)
-    if inhale_energy > 0:
-        energy_ratio = exhale_energy / inhale_energy
-    else:
-        energy_ratio = None
-    return energy_ratio
-
-
-def process_audio(
-    audio, fs_rate, interval_duration=15, overlap=0.5, height=0.2, distance=22100
-):
+def process_audio( audio, fs_rate, interval_duration=15, overlap=0.5, height=0.25, distance=22100):
     # Calculate the envelope of the audio signal
-    # envelope = calculate_envelope(audio)
-    # smooth = smooth_signal(envelope)
-    frames = frame_signal(audio, fs_rate)
-    energy = calculate_frame_energy(frames)
-    smoothed_energy = smooth_energy(energy, fs_rate*0.5)
+    envelope = calculate_envelope(audio)
+    smooth = smooth_signal(envelope)
     
     # Adjust interval length and step for the envelope
     interval_length = int(interval_duration * fs_rate)
     step = int(interval_length * (1 - overlap))
 
     # interval the envelope
-    intervals = interval_signal(smoothed_energy, interval_length, step)
+    intervals = interval_signal(smooth, interval_length, step)
 
     high_quality_intervals = []
     first_peak_times = []
@@ -426,59 +354,12 @@ def process_audio(
         print("No valid peaks found.")
 
     # Plot the original signal and envelope
-    plot_signal_and_envelope(audio, smoothed_energy, fs_rate)
+    plot_signal_and_envelope(audio, smooth, fs_rate)
 
     # Plot the intervals and their autocorrelation
-    plot_intervals_and_autocorrelation(intervals, fs_rate)
+    #plot_intervals_and_autocorrelation(intervals, fs_rate)
 
     return high_quality_intervals, average_first_peak_time
-
-def process_audio_features(filepath):
-    # Load the WAV file
-    audio, fs_rate = load_wav(filepath)
-
-    # Apply the Chebyshev bandpass filter
-    filtered_audio = chebyshev_bandpass_filter(audio, 100, 10000, fs_rate)
-
-    # Calculate the envelope of the audio signal
-    envelope = calculate_envelope(filtered_audio)
-
-    # Normalize the envelope
-    normalized_envelope = normalize_signal(envelope)
-
-    # Smooth the envelope to reduce noise
-    smoothed_envelope = smooth_signal(normalized_envelope)
-
-    # Calculate Spectral Centroid for the filtered audio
-    spectral_centroid = calculate_spectral_centroid(filtered_audio, fs_rate)
-
-    # Calculate Energy Ratio for the filtered audio
-    energy_ratio = calculate_energy_ratio(filtered_audio, fs_rate)
-
-    # Plot the original signal, smoothed envelope, and calculated features
-    #plot_signal_and_features(filtered_audio, smoothed_envelope, spectral_centroid, energy_ratio, fs_rate)
-
-    return spectral_centroid, energy_ratio
-
-def plot_signal_and_features(audio, envelope, spectral_centroid, energy_ratio, fs_rate):
-    time_audio = np.arange(len(audio)) / fs_rate
-    time_envelope = np.arange(len(envelope)) / fs_rate
-
-    plt.figure(figsize=(12, 8))
-
-    plt.subplot(2, 1, 1)
-    plt.plot(time_audio, audio)
-    plt.title('Filtered Audio Signal')
-
-    plt.subplot(2, 1, 2)
-    plt.plot(time_envelope, envelope)
-    plt.title('Smoothed Envelope')
-
-    plt.tight_layout()
-    plt.show()
-
-    print(f"Spectral Centroid: {spectral_centroid}")
-    print(f"Energy Ratio: {energy_ratio}")
 
 
 #!
@@ -583,13 +464,13 @@ def bandpass_filter(signal, fs_rate, lowcut=300, highcut=3000, order=5):
 def normalize_signal(signal):
     return (signal - np.min(signal)) / (np.max(signal) - np.min(signal))
 
-def smooth_signal(signal, window_len=882):
-    """
-    Apply a Hanning window smoothing filter to the signal.
-    """
-    window = np.hanning(window_len)
-    smooth_signal = np.convolve(signal, window / window.sum(), mode='same')
-    return smooth_signal
+# def smooth_signal(signal, window_len=882):
+#     """
+#     Apply a Hanning window smoothing filter to the signal.
+#     """
+#     window = np.hanning(window_len)
+#     smooth_signal = np.convolve(signal, window / window.sum(), mode='same')
+#     return smooth_signal
 
 def detect_breaths(envelope, fs_rate, height_factor=0.52, distance_factor=1.2):
     """

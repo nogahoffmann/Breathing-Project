@@ -15,7 +15,6 @@ from scipy.fft import fft
 import matplotlib.pyplot as plt
 import mplcursors
 
-
 def load_wav(filename):
     """
     Function to load a WAV file
@@ -230,6 +229,8 @@ def chebyshev_bandpass_filter(
 
     return y
 
+
+
 #? part two
 def calculate_envelope(audio):
     # Calculate the analytic signal using the Hilbert transform
@@ -262,8 +263,7 @@ def autocorrelation_fft(interval):
     return result
 
 
-
-def smooth_signal(signal, window_len=1103):
+def smooth_signal(signal, window_len=4410):
     # Apply a Hanning window smoothing filter
     window = np.hanning(window_len)
     smooth_signal = np.convolve(signal, window/window.sum(), mode='same')
@@ -306,7 +306,7 @@ def plot_intervals_and_autocorrelation(intervals, fs_rate):
         plt.show()
 
 
-def process_audio( audio, fs_rate, interval_duration=15, overlap=0.5, height=0.25, distance=22100):
+def process_audio_breathing_rate( audio, fs_rate, interval_duration=15, overlap=0.5, height=0.25, distance=22100):
     # Calculate the envelope of the audio signal
     envelope = calculate_envelope(audio)
     smooth = smooth_signal(envelope)
@@ -361,206 +361,157 @@ def process_audio( audio, fs_rate, interval_duration=15, overlap=0.5, height=0.2
 
     return high_quality_intervals, average_first_peak_time
 
+def classify_inhalation_exhalation(intervals, fs_rate):
+    inhalation_exhalation_segments = []
+    for interval in intervals:
+        sorted_interval = np.sort(interval)
+        cumulative_sum = np.cumsum(sorted_interval)
+        total_sum = cumulative_sum[-1]
+        threshold_index = np.searchsorted(cumulative_sum, 0.1 * total_sum)
+        threshold = sorted_interval[threshold_index]
+        inhalation = np.where(interval < threshold)[0]
+        exhalation = np.where(interval >= threshold)[0]
+        inhalation_time = len(inhalation) / fs_rate
+        exhalation_time = len(exhalation) / fs_rate
+        inhalation_exhalation_segments.append((inhalation_time, exhalation_time))
+    return inhalation_exhalation_segments
 
-#!
+def plot_intervals_with_threshold(intervals, fs_rate):
+    for i, interval in enumerate(intervals):
+        sorted_interval = np.sort(interval)
+        cumulative_sum = np.cumsum(sorted_interval)
+        total_sum = cumulative_sum[-1]
+        threshold_index = np.searchsorted(cumulative_sum, 0.1 * total_sum)
+        threshold = sorted_interval[threshold_index]
+        time = np.arange(len(interval)) / fs_rate
+        plt.figure(figsize=(12, 6))
+        plt.plot(time, interval, label="Interval")
+        plt.axhline(y=threshold, color='r', linestyle='--', label="Threshold")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Amplitude")
+        plt.title(f"Interval {i + 1} with Threshold")
+        plt.legend()
+        plt.show()
 
-def load_wav_bytes(filepath):
-    # Read the WAV file
-    wav_bytes = tf.io.read_file(filepath)
-    return wav_bytes
-
-def preprocess_audio(audio, fs_rate): # Preprocess audio for the model
-    # Resample audio to 16 kHz
-    audio_resampled = librosa.resample(audio, orig_sr=fs_rate, target_sr=16000)
-    return audio_resampled
-
-# Function to interpret the model's predictions
-def interpret_predictions(scores, target_class_indices, threshold=0.15, frame_step=0.48):
-    detected_segments = {class_name: [] for class_name in target_class_indices.keys()}
-
-    for i, prob in enumerate(scores):
-        for class_name, class_index in target_class_indices.items():
-            if prob[class_index] > threshold:
-                start_time = i * frame_step
-                end_time = start_time + 0.96  # Frame length in seconds
-                detected_segments[class_name].append((start_time, end_time))
-
-    # Merge adjacent or overlapping segments
-    merged_segments = {class_name: [] for class_name in detected_segments.keys()}
-    for class_name, segments in detected_segments.items():
-        if not segments:
-            continue
-        segments.sort()
-        merged_start, merged_end = segments[0]
-        for start, end in segments[1:]:
-            if start <= merged_end:  # Overlapping or contiguous segments
-                merged_end = max(merged_end, end)
-            else:
-                merged_segments[class_name].append((merged_start, merged_end))
-                merged_start, merged_end = start, end
-        merged_segments[class_name].append((merged_start, merged_end))
-
-    return merged_segments
-
-# Function to visualize waveform, spectrogram, and top classes
-def visualize_audio(waveform, spectrogram, scores, class_names):
-    plt.figure(figsize=(10, 6))
-
-    # Plot the waveform
-    plt.subplot(3, 1, 1)
-    plt.plot(waveform)
-    plt.xlim([0, len(waveform)])
-    plt.title('Waveform')
-
-    # Plot the log-mel spectrogram
-    plt.subplot(3, 1, 2)
-    plt.imshow(spectrogram.T, aspect='auto', interpolation='nearest', origin='lower')
-    plt.title('Spectrogram')
-
-    # Plot and label the model output scores for the top-scoring classes
-    mean_scores = np.mean(scores, axis=0)
-    top_n = 10
-    top_class_indices = np.argsort(mean_scores)[::-1][:top_n]
-    plt.subplot(3, 1, 3)
-    plt.imshow(scores[:, top_class_indices].T, aspect='auto', interpolation='nearest', cmap='gray_r')
-
-    patch_padding = (0.025 / 2) / 0.01
-    plt.xlim([-patch_padding-0.5, scores.shape[0] + patch_padding-0.5])
-    yticks = range(0, top_n, 1)
-    plt.yticks(yticks, [class_names[top_class_indices[x]] for x in yticks])
-    plt.ylim(-0.5 + np.array([top_n, 0]))
-    plt.title('Top Classes')
-
-    plt.tight_layout()
-    plt.show()
-   
-# Load YAMNet class names
-def load_class_names():
-    class_map_path = tf.keras.utils.get_file('yamnet_class_map.csv',
-                                             'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv')
-    class_names = []
-    with open(class_map_path) as f:
-        for line in f.readlines()[1:]:
-            class_names.append(line.strip().split(',')[2])
-    return class_names
-
-class_names = load_class_names()
-
-#!
+def process_and_classify_audio(file_path):
+    audio, fs_rate = load_wav(file_path)
+    filtered_audio = chebyshev_bandpass_filter(audio, 2000, 10000, fs_rate, ripple=20)
+    high_quality_intervals, _ = process_audio_breathing_rate(filtered_audio, fs_rate)
+    print(f"Number of quality intervals {len(high_quality_intervals)}")
+    inhalation_exhalation_segments = classify_inhalation_exhalation(high_quality_intervals, fs_rate)
+    plot_intervals_with_threshold(high_quality_intervals, fs_rate)
+    return inhalation_exhalation_segments
 
 
-def bandpass_filter(signal, fs_rate, lowcut=300, highcut=3000, order=5):
-    """
-    Apply a bandpass filter to the signal.
-    """
-    nyquist = 0.5 * fs_rate
-    low = lowcut / nyquist
-    high = highcut / nyquist
-    b, a = butter(order, [low, high], btype='band')
-    filtered_signal = filtfilt(b, a, signal)
-    return filtered_signal
 
 
-def normalize_signal(signal):
-    return (signal - np.min(signal)) / (np.max(signal) - np.min(signal))
+#todo:
+# def find_local_minima(interval, fs_rate):
+#     # Find local minima in the interval
+#     minima, _ = find_peaks(-interval, distance=fs_rate*0.5)  # Adjust distance to limit the number of points
+#     # Ensure there are not more than 20 points in a 10-second interval
+#     if len(minima) > 20:
+#         minima = minima[:20]
+#     # Convert indices to time
+#     minima_times = minima / fs_rate
+#     return minima_times
 
-# def smooth_signal(signal, window_len=882):
-#     """
-#     Apply a Hanning window smoothing filter to the signal.
-#     """
-#     window = np.hanning(window_len)
-#     smooth_signal = np.convolve(signal, window / window.sum(), mode='same')
-#     return smooth_signal
+# def calculate_time_differences(minima_times):
+#     if len(minima_times) < 2:
+#         return []
+#     return np.diff(minima_times)
 
-def detect_breaths(envelope, fs_rate, height_factor=0.52, distance_factor=1.2):
-    """
-    Detect peaks and troughs in the envelope of the signal.
-    """
-    height = height_factor * np.max(envelope)
-    distance = int(distance_factor * fs_rate)
-    peaks, _ = find_peaks(envelope, height=height, distance=distance)
-    troughs, _ = find_peaks(-envelope, height=height, distance=distance)
-    return peaks, troughs
-
-def find_breath_intervals(peaks, troughs):
-    """
-    Pair peaks and troughs to determine the start and end of each breath.
-    """
-    breath_intervals = []
-    peak_idx = 0
-    trough_idx = 0
-
-    while peak_idx < len(peaks) and trough_idx < len(troughs):
-        if troughs[trough_idx] < peaks[peak_idx]:
-            start_idx = troughs[trough_idx]
-            end_idx = peaks[peak_idx]
-            breath_intervals.append((start_idx, end_idx))
-            trough_idx += 1
-        peak_idx += 1
-
-    return breath_intervals
-
-def validate_breath_intervals(breath_intervals, fs_rate, min_breath_duration=0.6, max_breath_duration=2.0):
-    """
-    Validate breath intervals by filtering out intervals that are too short or too long.
-    """
-    valid_intervals = []
-    for start, end in breath_intervals:
-        duration = (end - start) / fs_rate
-        if min_breath_duration <= duration <= max_breath_duration:
-            valid_intervals.append((start, end))
-    return valid_intervals
-
-def plot_signal_envelope_breaths(audio, envelope, smoothed_envelope, breath_intervals, peaks, troughs, fs_rate):
-    """
-    Plot the original signal, smoothed envelope, and detected breath intervals.
-    """
-    time_envelope = np.arange(len(envelope)) / fs_rate
-
-    plt.figure(figsize=(12, 8))
-
-    plt.subplot(2, 1, 1)
-    plt.plot(time_envelope, envelope)
-    plt.title('Envelope of the Signal')
-
-    plt.subplot(2, 1, 2)
-    plt.plot(time_envelope, smoothed_envelope)
-    plt.plot(peaks / fs_rate, smoothed_envelope[peaks], "x")
-    plt.plot(troughs / fs_rate, smoothed_envelope[troughs], "o")
-    for start, end in breath_intervals:
-        plt.axvline(x=start / fs_rate, color='g', linestyle='--')
-        plt.axvline(x=end / fs_rate, color='r', linestyle='--')
-    plt.title('Smoothed Envelope of the Signal with Detected Breaths')
-
-    plt.tight_layout()
-    plt.show()
-
-def process_audio_with_breath_detection(filtered_audio, fs_rate):
-    """
-    Process the audio file to find breath intervals and plot the results.
-    """
-
-    # Normalize the filtered audio
-    normalized_audio = normalize_signal(filtered_audio)
+# def plot_intervals_and_autocorrelation_with_minima(intervals, fs_rate):
+#     all_time_differences = []
     
-    # Calculate the envelope of the audio signal
-    envelope = calculate_envelope(normalized_audio)
+#     for i, interval in enumerate(intervals):
+#         time = np.arange(len(interval)) / fs_rate
+#         acorr = autocorrelation_fft(interval)
+        
+#         minima_times = find_local_minima(interval, fs_rate)
+#         time_differences = calculate_time_differences(minima_times)
+#         all_time_differences.extend(time_differences)
+        
+#         plt.figure(figsize=(12, 6))
+        
+#         plt.subplot(2, 1, 1)
+#         plt.plot(time, interval)
+#         for minima_time in minima_times:
+#             plt.axvline(x=minima_time, color='r', linestyle='--')
+#         plt.title(f'Interval {i + 1}')
+        
+#         plt.subplot(2, 1, 2)
+#         plt.plot(np.arange(len(acorr)) / fs_rate, acorr)
+#         plt.title(f'Autocorrelation of Interval {i + 1}')
+        
+#         plt.tight_layout()
+#         plt.show()
+    
+#     return all_time_differences
 
-    # Smooth the envelope to reduce noise
-    smoothed_envelope = smooth_signal(envelope)
+# def process_audio_with_minima(audio, fs_rate, interval_duration=15, overlap=0.5, height=0.25, distance=11050):
+#     # Calculate the envelope of the audio signal
+#     envelope = calculate_envelope(audio)
+#     smooth = smooth_signal(envelope)
+    
+#     # Adjust interval length and step for the envelope
+#     interval_length = int(interval_duration * fs_rate)
+#     step = int(interval_length * (1 - overlap))
 
-    # Detect peaks and troughs in the smoothed envelope
-    peaks, troughs = detect_breaths(smoothed_envelope, fs_rate)
+#     # Interval the envelope
+#     intervals = interval_signal(smooth, interval_length, step)
 
-    # Find breath intervals (start and end indexes)
-    breath_intervals = find_breath_intervals(peaks, troughs)
+#     high_quality_intervals = []
+#     first_peak_times = []
 
-    # Validate breath intervals
-    valid_intervals = validate_breath_intervals(breath_intervals, fs_rate)
+#     print(f"Number of intervals: {len(intervals)}")
 
-    # Plot the original signal, envelope, smoothed envelope, and detected breaths
-    plot_signal_envelope_breaths(normalized_audio, envelope, smoothed_envelope, valid_intervals, peaks, troughs, fs_rate)
+#     # Process each interval
+#     for i, interval in enumerate(intervals):
+#         # Compute autocorrelation of the interval
+#         acorr = autocorrelation_fft(interval)
 
-    return valid_intervals
+#         # Find peaks in the autocorrelation function
+#         peaks, _ = find_peaks(acorr, height=height, distance=distance)
+
+#         # Select intervals with more than one peak as high-quality intervals
+#         if len(peaks) > 1:  # Adjust this condition as needed
+#             high_quality_intervals.append(interval)
+
+#             # Find the first peak within the specified range
+#             valid_peaks = [p for p in peaks if 0.64 <= p / fs_rate <= 2]
+#             if valid_peaks:
+#                 first_peak_time = valid_peaks[0] / fs_rate  # Convert index to time
+#                 first_peak_times.append(first_peak_time)
+    
+#     # Calculate the average first peak time
+#     if first_peak_times:
+#         average_first_peak_time = np.mean(first_peak_times)
+#         print(f"Average first peak time: {average_first_peak_time} seconds")
+#         breathing_rate = 60 / average_first_peak_time
+#         print(f"BR = {round(breathing_rate)} breaths in one minute")
+#     else:
+#         average_first_peak_time = None
+#         print("No valid peaks found.")
+    
+#     print(f"Number of high quality intervals: {len(high_quality_intervals)}")
+    
+#     # Plot the original signal and envelope
+#     plot_signal_and_envelope(audio, smooth, fs_rate)
+
+#     # Plot the intervals and their autocorrelation with minima
+#     all_time_differences = plot_intervals_and_autocorrelation_with_minima(high_quality_intervals, fs_rate)
+
+#     # Calculate average time difference between minima
+#     if all_time_differences:
+#         average_time_difference = np.mean(all_time_differences)
+#         print(f"Average time difference between minima: {average_time_difference} seconds")
+#     else:
+#         average_time_difference = None
+#         print("No minima found in high-quality intervals.")
+    
+#     return high_quality_intervals, average_first_peak_time, average_time_difference
 
 
+
+#todo

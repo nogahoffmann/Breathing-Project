@@ -145,19 +145,11 @@ def plotting_spectrogram(audio, fs_rate, title):
     # Plot the signal's spectrogram
     frequencies, times, Sxx = spectrogram(audio, fs_rate)
     plt.figure(figsize=(10, 5))
-    plt.pcolormesh(
-        times,
-        frequencies,
-        10 * np.log10(Sxx),
-        shading="gouraud",
-        cmap="magma",
-        vmin=-20,
-        vmax=20,
-    )
-    plt.title(title)
-    plt.ylabel("Frequency [Hz]")
+    plt.pcolormesh(times, frequencies, 10 * np.log10(Sxx), shading="gouraud", cmap="magma", vmin=-110, vmax=-55)
+    plt.title(title, fontsize=16)
+    plt.ylabel("Frequency [Hz]", fontsize=14)
     plt.ylim(0, 13000)
-    plt.xlabel("Time [sec]")
+    plt.xlabel("Time [sec]", fontsize=14)
     plt.xlim(4, 12)
     plt.colorbar(label="Intensity [dB]")
     plt.show()
@@ -172,8 +164,8 @@ def apply_spectrogram_and_display(audio, fs_rate):
 
 
 def filter_and_display(audio, fs_rate):
-    lowcut = 100  # Low cutoff frequency of the band-pass filter we decided to choose
-    highcut = 10000  # High cutoff frequency of the band-pass filter
+    lowcut = 300  # Low cutoff frequency of the band-pass filter we decided to choose
+    highcut = 19000  # High cutoff frequency of the band-pass filter
 
     normalized_audio = audio / np.max(np.abs(audio))
     length = len(audio)
@@ -185,17 +177,18 @@ def filter_and_display(audio, fs_rate):
 
     # Plot the original and filtered signals
     plt.figure(figsize=(12, 6))
-    plt.plot(time, normalized_audio)
-    plt.xlabel("Time [sec]")
-    plt.ylabel("Amplitude")
+    plt.plot(time[(50*fs_rate):(107*fs_rate)], normalized_audio[2205000:4718700])
+    plt.xlabel("Time [sec]", fontsize=14)
+    plt.ylabel("Amplitude",  fontsize=14)
     plt.title("Original Audio", fontsize=16)
     plt.grid(True)
 
     plt.figure(figsize=(12, 6))
-    plt.plot(time, filtered_audio)
-    plt.xlabel("Time [sec]")
-    plt.ylabel("Amplitude")
-    plt.title("Filtered Audio (band-pass)")
+    plt.plot(time[(50*fs_rate):(107*fs_rate)], filtered_audio[2205000:4718700])
+    plt.xlabel("Time [sec]",  fontsize=14)
+    plt.ylabel("Amplitude",  fontsize=14)
+    #plt.ylim(-0.3, 0.8)
+    plt.title("Filtered Audio (band-pass)", fontsize=16)
     plt.grid(True)
 
     plt.tight_layout()
@@ -295,7 +288,6 @@ def plot_intervals_and_autocorrelation(intervals, fs_rate):
         plt.xlabel("Time (s)", fontsize=15)
         plt.ylabel("Amplitude", fontsize=15)
         plt.title(f"Interval {i + 1}", fontsize=18)
-
         plt.subplot(2, 1, 2)
         plt.plot(np.arange(len(acorr)) / fs_rate, acorr)
         plt.xlabel("Time (s)", fontsize=15)
@@ -412,7 +404,7 @@ def calculate_spectral_centroid(interval, fs_rate, lowcut=300, highcut=19000):
     filtered_frequencies = f[freq_mask]
     filtered_spectrum = magnitude_spectrum[freq_mask, :]
     
-    # Initialize an empty list to store spectral centroids
+    # empty list to store spectral centroids
     spectral_centroids = []
     
     # Calculate spectral centroids for each frame

@@ -1,2 +1,4 @@
 */*.WAV
+labels
+tmp
 __pycache__
